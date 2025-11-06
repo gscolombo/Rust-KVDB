@@ -65,7 +65,6 @@ pub fn create_record(key: &String, path: &String) -> Record {
 pub fn serialize_record(rec: Record) -> Vec<u8> {
     let mut data: Vec<u8> = Vec::new();
 
-    data.extend_from_slice(&[0x52, 0x55, 0x53, 0x54]); // Magic number with the ASCII code for "RUST"
     data.extend_from_slice(rec.header.key.as_bytes());
     data.extend_from_slice(rec.header.data_type.to_string().as_bytes());
     data.extend_from_slice(&rec.header.size.to_be_bytes()); // Store byte string in big-endian order
