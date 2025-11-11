@@ -19,7 +19,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     // Set frame base layout
     let area = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Max(3)])
+        .constraints([Constraint::Length(3), Constraint::Min(1)])
         .split(frame.area());
 
     // Define title

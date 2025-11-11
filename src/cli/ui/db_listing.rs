@@ -13,7 +13,7 @@ pub fn database_listing(frame: &mut Frame, app: &mut App, area: Rc<[Rect]>) {
     // Define layout
     let options_list = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(options.iter().map(|_| Constraint::Max(1)))
+        .constraints(options.iter().map(|_| Constraint::Length(1)))
         .split(area[1]);
 
     // Initialize options button list
