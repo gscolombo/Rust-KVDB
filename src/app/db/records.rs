@@ -20,7 +20,7 @@ pub struct Record {
     data: Vec<u8>, // Byte string
 }
 
-pub struct RecordHeader {
+struct RecordHeader {
     key: String,
     data_type: DataType,
     size: u32,

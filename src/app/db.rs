@@ -2,12 +2,30 @@ mod records;
 
 use std::fs::{File, OpenOptions, create_dir};
 use std::io::{Result, Write};
-use std::path::Path;
+use std::path::{Path};
 use std::time::UNIX_EPOCH;
 
-use crate::cli::db::records::{create_record, serialize_record};
+use crate::app::db::records::{create_record, serialize_record};
 
-fn create_database(name: &str) -> Result<()> {
+pub fn list_databases() -> Vec<String> {
+    let pathstr = "./databases";
+    let path = Path::new(pathstr);
+    if !path.exists() {
+        return Vec::new();
+    }
+
+    let mut dbs: Vec<String> = Vec::new();
+    for db in path.read_dir().expect("Error reading database directory") {
+        if let Ok(entry) = db {
+            let p = entry.path().to_str().unwrap().to_owned();
+            dbs.push(p[pathstr.len() + 1..p.len() - 5].to_string());
+        }
+    }
+
+    dbs
+}
+
+pub fn create_database(name: &str) -> Result<()> {
     assert_eq!(name.is_empty(), false, "Database name must be non-empty.");
 
     let pathstr = &format!("./databases/{name}.kvdb");

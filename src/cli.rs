@@ -1,65 +1,92 @@
-mod db;
+mod menus;
+mod ui;
 
-fn show_help() {
-    println!(
-        "
-Key-Value Binary File Database Manager
+use ratatui::Terminal;
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use ratatui::prelude::Backend;
+use std::io::*;
 
-USAGE:
-    kvdb [OPTIONS] <DATABASE> <COMMAND> [ARGS...]
+use crate::app::{App, CurrentScreen, MainMenu};
+use crate::cli::menus::{DatabaseListingOptions, database_list};
 
-OPTIONS:
-    -h, --help      Print this help message
+use menus::{MainMenuOptions, main_menu};
+use ui::ui;
 
-DATABASE:
-    Name of the database file (e.g., 'mydb' creates/uses 'mydb.kvdb')
+fn event_loop(key: KeyEvent, app: &mut App) -> Option<Result<bool>> {
+    match app.current_screen {
+        CurrentScreen::Main(MainMenu::OptionsList) => match main_menu(key, app) {
+            Some(MainMenuOptions::CreateDb) => {
+                app.current_screen = CurrentScreen::Main(MainMenu::CreateDb)
+            }
+            Some(MainMenuOptions::LoadDb) => {
+                app.option_highlighted = 0;
+                app.current_screen = CurrentScreen::DatabaseList;
+            }
+            Some(MainMenuOptions::Exit) => return Some(Ok(true)),
+            None => {}
+        },
+        CurrentScreen::Main(MainMenu::CreateDb) if key.kind == KeyEventKind::Press => {
+            match key.code {
+                KeyCode::Char(value) => {
+                    app.input.push(value);
+                }
+                KeyCode::Backspace => {
+                    app.input.pop();
+                }
+                KeyCode::Esc => {
+                    app.input.clear();
+                    app.current_screen = CurrentScreen::Main(MainMenu::OptionsList);
+                }
+                KeyCode::Enter if !app.input.is_empty() => match app.create_database() {
+                    Ok(()) => {
+                        app.input.clear();
+                        app.current_screen = CurrentScreen::Main(MainMenu::SuccessMessage);
+                        app.list_databases();
+                    }
+                    Err(e) => panic!("Error: {e:?}"),
+                },
+                _ => {}
+            }
+        }
+        CurrentScreen::Main(MainMenu::SuccessMessage) => match key.code {
+            KeyCode::Enter | KeyCode::Esc => {
+                app.current_screen = CurrentScreen::Main(MainMenu::OptionsList);
+            }
+            _ => {}
+        },
+        CurrentScreen::DatabaseList => {
+            match database_list(key, app) {
+                Some(DatabaseListingOptions::ChooseDb) => {
+                    // Parse and verify database file header
+                    // Build B-Tree for indexing
+                    // Change current screen
+                }
+                Some(DatabaseListingOptions::Exit) => {
+                    app.option_highlighted = 0;
+                    app.current_screen = CurrentScreen::Main(MainMenu::OptionsList);
+                }
+                None => {}
+            }
+        }
+        _ => {}
+    }
 
-COMMANDS:
-    insert <KEY> <FILE>     Insert a file into the database
-    search <KEY>            Search and output a file to stdout
-    delete <KEY>            Delete a key from the database
-    list                    List all keys in the database
-    info                    Show database statistics
-
-EXAMPLES:
-    db mydb insert config settings.json
-    db mydb search config > restored.json
-    db mydb delete old_config
-    db mydb list
-    db mydb info
-
-NOTES:
-    - Database files are stored with .kvdb extension
-    - Values are automatically compressed to save space
-    "
-    );
+    None
 }
 
-pub fn init(input: &Vec<String>) {
-    match &*input[1] {
-        "-h" | "--help" => show_help(),
-        _ => match &*input[2] {
-            "insert" => {
-                assert_eq!(
-                    input.len(),
-                    5,
-                    "Invalid number of arguments\nUse \"-h\" or \"--help\" for usage instructions."
-                );
+pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<bool> {
+    loop {
+        terminal.draw(|frame| ui(frame, app))?;
 
-                println!(
-                    "Operation: INSERT RECORD {} INTO {}\n",
-                    &input[4], &input[1]
-                );
+        if let Event::Key(key) = event::read()? {
+            if key.kind == event::KeyEventKind::Release {
+                continue;
+            }
 
-                match db::insert_record(&input[1], &input[3], &input[4]) {
-                    Ok(..) => println!("Operation finished successfully"),
-                    Err(e) => panic!("Error during operation: {e:?}"),
-                };
+            match event_loop(key, app) {
+                Some(res) => return res,
+                None => continue,
             }
-            _ => {
-                println!("Invalid option");
-                show_help();
-            }
-        },
-    };
+        }
+    }
 }
