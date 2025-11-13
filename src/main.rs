@@ -20,3 +20,6 @@ fn main() -> std::io::Result<()> {
     db.write_all(&serialize_record(rec))?;
     Ok(())
 }
+fn test_main() {
+    // This is just a placeholder to allow compilation.
+}
