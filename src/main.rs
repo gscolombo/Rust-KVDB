@@ -1,3 +1,5 @@
+pub mod btree;
+pub use btree::BTree;
 mod records;
 
 use records::{create_record, serialize_record};
@@ -19,7 +21,4 @@ fn main() -> std::io::Result<()> {
     
     db.write_all(&serialize_record(rec))?;
     Ok(())
-}
-fn test_main() {
-    // This is just a placeholder to allow compilation.
 }
