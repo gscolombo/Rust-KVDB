@@ -8,6 +8,7 @@ use std::io::*;
 
 mod app;
 mod cli;
+mod db;
 
 use app::App;
 use cli::{run};

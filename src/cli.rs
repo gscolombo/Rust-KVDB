@@ -1,74 +1,42 @@
 mod menus;
 mod ui;
+mod db_loaded_event_loop;
+mod main_event_loop;
+mod shared;
 
 use ratatui::Terminal;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use ratatui::crossterm::event::{self, Event, KeyEvent};
 use ratatui::prelude::Backend;
 use std::io::*;
 
-use crate::app::{App, CurrentScreen, MainMenu};
+use crate::app::{App, CurrentScreen, DatabasePrompt, MainMenu};
 use crate::cli::menus::{DatabaseListingOptions, database_list};
 
-use menus::{MainMenuOptions, main_menu};
 use ui::ui;
+
+use main_event_loop::main_menu_event_loop;
+use db_loaded_event_loop::database_loaded_event_loop;
+
 
 fn event_loop(key: KeyEvent, app: &mut App) -> Option<Result<bool>> {
     match app.current_screen {
-        CurrentScreen::Main(MainMenu::OptionsList) => match main_menu(key, app) {
-            Some(MainMenuOptions::CreateDb) => {
-                app.current_screen = CurrentScreen::Main(MainMenu::CreateDb)
+        CurrentScreen::Main(_) => { 
+            if main_menu_event_loop(key, app) {
+                return Some(Ok(true));
             }
-            Some(MainMenuOptions::LoadDb) => {
-                app.option_highlighted = 0;
-                app.current_screen = CurrentScreen::DatabaseList;
+         },
+        CurrentScreen::DatabaseList => match database_list(key, app) {
+            Some(DatabaseListingOptions::ChooseDb) => {
+                app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::SelectCommand);
             }
-            Some(MainMenuOptions::Exit) => return Some(Ok(true)),
-            None => {}
-        },
-        CurrentScreen::Main(MainMenu::CreateDb) if key.kind == KeyEventKind::Press => {
-            match key.code {
-                KeyCode::Char(value) => {
-                    app.input.push(value);
-                }
-                KeyCode::Backspace => {
-                    app.input.pop();
-                }
-                KeyCode::Esc => {
-                    app.input.clear();
-                    app.current_screen = CurrentScreen::Main(MainMenu::OptionsList);
-                }
-                KeyCode::Enter if !app.input.is_empty() => match app.create_database() {
-                    Ok(()) => {
-                        app.input.clear();
-                        app.current_screen = CurrentScreen::Main(MainMenu::SuccessMessage);
-                        app.list_databases();
-                    }
-                    Err(e) => panic!("Error: {e:?}"),
-                },
-                _ => {}
-            }
-        }
-        CurrentScreen::Main(MainMenu::SuccessMessage) => match key.code {
-            KeyCode::Enter | KeyCode::Esc => {
+            Some(DatabaseListingOptions::Exit) => {
                 app.current_screen = CurrentScreen::Main(MainMenu::OptionsList);
             }
-            _ => {}
+            None => {}
         },
-        CurrentScreen::DatabaseList => {
-            match database_list(key, app) {
-                Some(DatabaseListingOptions::ChooseDb) => {
-                    // Parse and verify database file header
-                    // Build B-Tree for indexing
-                    // Change current screen
-                }
-                Some(DatabaseListingOptions::Exit) => {
-                    app.option_highlighted = 0;
-                    app.current_screen = CurrentScreen::Main(MainMenu::OptionsList);
-                }
-                None => {}
-            }
-        }
-        _ => {}
+        CurrentScreen::DatabaseLoaded(_) => {
+            database_loaded_event_loop(key, app);
+        },
     }
 
     None

@@ -1,12 +1,12 @@
-mod db;
+use core::fmt;
+use std::fs::File;
 
-use db::create_database;
-
-use crate::app::db::list_databases;
+use crate::db::list_databases;
 
 pub enum CurrentScreen {
     Main(MainMenu),
     DatabaseList,
+    DatabaseLoaded(DatabasePrompt)
 }
 
 pub enum MainMenu {
@@ -16,12 +16,39 @@ pub enum MainMenu {
     FailureMessage,
 }
 
+pub enum DatabasePrompt {
+    SelectCommand,
+    UserInput,
+    ResultView,
+    SuccessMessage,
+    FailureMessage
+}
+
+pub enum DatabaseCommands {
+    SEARCH,
+    INSERT,
+    DELETE,
+    CLOSE
+}
+
+impl fmt::Display for DatabaseCommands {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::SEARCH => write!(f, "SEARCH"),
+            Self::INSERT => write!(f, "INSERT"),
+            Self::DELETE => write!(f, "DELETE"),
+            Self::CLOSE => write!(f, "CLOSE")
+        }
+    }
+}
+
 pub struct App {
     pub input: String,
-    pub loaded_db: Option<String>,
+    pub loaded_db: Option<File>,
     pub databases: Vec<String>,
     pub current_screen: CurrentScreen,
     pub option_highlighted: u8,
+    pub db_command: Option<DatabaseCommands>,
 }
 
 impl App {
@@ -32,17 +59,14 @@ impl App {
             databases: Vec::new(),
             current_screen: CurrentScreen::Main(MainMenu::OptionsList),
             option_highlighted: 0,
+            db_command: None
         };
 
-        app.list_databases();
+        app.fetch_databases();
         app
     }
 
-    pub fn create_database(&mut self) -> Result<(), std::io::Error> {
-        return create_database(&self.input.to_string());
-    }
-
-    pub fn list_databases(&mut self) {
+    pub fn fetch_databases(&mut self) {
         self.databases = list_databases();
     }
 }

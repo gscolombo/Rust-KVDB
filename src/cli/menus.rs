@@ -1,6 +1,6 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use crate::app::{self, App};
+use crate::{app::{App, DatabaseCommands}, db::open_database};
 
 pub enum MainMenuOptions {
     CreateDb,
@@ -60,11 +60,42 @@ pub fn database_list(key: KeyEvent, app: &mut App) -> Option<DatabaseListingOpti
                 app.option_highlighted += 1;
             }
         }
-        KeyCode::Enter => match app.option_highlighted {
-            n => return Some(DatabaseListingOptions::Exit),
-            _ => return Some(DatabaseListingOptions::ChooseDb),
-        },
+        KeyCode::Enter => {
+            if app.option_highlighted == n {
+                app.option_highlighted = 0;
+                return Some(DatabaseListingOptions::Exit);
+            } else {
+                let chosen_db = app.databases[app.option_highlighted as usize].as_str(); 
+                app.loaded_db = Some(open_database(chosen_db));
+                // Set B-Tree for database index
+                return Some(DatabaseListingOptions::ChooseDb);
+            }
+        }
         KeyCode::Esc => return Some(DatabaseListingOptions::Exit),
+        _ => {}
+    }
+
+    return None;
+}
+
+pub fn database_commands(key: KeyEvent, app: &mut App) -> Option<DatabaseCommands> {
+    let op = app.option_highlighted;
+    match key.code {
+        KeyCode::Down => {
+            app.option_highlighted = if op == 3 { 0 } else { op + 1 }; 
+        },
+        KeyCode::Up => {
+            app.option_highlighted = if op == 0 { 3 } else { op - 1 }; 
+        }
+        KeyCode::Enter => {
+            match op {
+                0 => return Some(DatabaseCommands::SEARCH),
+                1 => return Some(DatabaseCommands::INSERT),
+                2 => return Some(DatabaseCommands::DELETE),
+                3 => return Some(DatabaseCommands::CLOSE),
+                _ => {}
+            }
+        }
         _ => {}
     }
 

@@ -1,14 +1,17 @@
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::Text;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::app::{App, CurrentScreen, MainMenu};
+use crate::app::{App, CurrentScreen};
+use crate::cli::ui::db_prompt::database_prompt;
 
 mod button;
 mod home;
 mod db_listing;
+mod db_prompt;
+mod shared;
 
 use home::home;
 use db_listing::database_listing;
@@ -38,33 +41,10 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
 
     // Render screen
     match app.current_screen {
-        CurrentScreen::Main(MainMenu::OptionsList)
-        | CurrentScreen::Main(MainMenu::CreateDb)
-        | CurrentScreen::Main(MainMenu::SuccessMessage) => home(frame, app, area),
+        CurrentScreen::Main(_) => home(frame, app, area),
         CurrentScreen::DatabaseList => database_listing(frame, app, area),
-        _ => {}
+        CurrentScreen::DatabaseLoaded(_) => database_prompt(frame, app, area)
     }
 }
 
-/// helper function to create a centered rect using up certain percentage of the available rect `r`
-fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
-    // Cut the given rectangle into three vertical pieces
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(25),
-            Constraint::Length(height),
-            Constraint::Percentage(25),
-        ])
-        .split(r);
 
-    // Then cut the middle vertical piece into three width-wise pieces
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1] // Return the middle chunk
-}
