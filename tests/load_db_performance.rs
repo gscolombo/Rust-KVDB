@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::time::Instant;
 use kvdb::load_database;
+use rand::seq::SliceRandom;
 use tempfile::tempfile;
 use kvdb::btree::BTree;
 
@@ -58,7 +59,12 @@ fn test_load_database_correctness() {
     println!("Index size: {}", index.size);
     
     // Verify all keys are in the index
-    for i in 0..100 {
+    let mut rng = rand::rng();
+    let mut keys: Vec<i32> = (0..100).collect();
+    keys.shuffle(&mut rng);
+
+    println!("Testing keys in order: {:?}", keys);
+    for i in keys {
         let key = format!("key{:010}", i);
         let offset = index.search(&key);
         assert!(offset.is_some(), "Key '{}' not found in index", key);
@@ -71,6 +77,12 @@ fn test_load_database_correctness() {
         db_file.read_exact(&mut len_bytes).expect("Failed to read length");
         let stored_len = u64::from_be_bytes(len_bytes);
         assert_eq!(stored_len, 1024, "Wrong value length for key '{}'", key);
+
+        // Verify that the data can be retrieved by the runtime index
+        let mut data_bytes = vec![0u8; stored_len as usize];
+        db_file.read_exact(&mut data_bytes).expect("Failed to read data");
+        let data = String::from_utf8(data_bytes).expect("Failed to convert data to string.");
+        assert_eq!(data, "x".repeat(stored_len as usize));
     }
     
     println!("✓ All 100 keys correctly indexed\n");
