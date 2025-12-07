@@ -132,7 +132,6 @@ fn test_load_performance_large() {
 fn test_load_memory_usage() {
     println!("=== Testing memory usage ===");
     
-    println!("Creating database...");
     let mut db_file = create_test_database(1_000_000, 20, 256); // 1M entries
     
     let mut index = BTree::new();
@@ -140,14 +139,17 @@ fn test_load_memory_usage() {
     println!("Loading database index...");
     let start = Instant::now();
     load_database(&mut db_file, &mut index);
-    let duration = start.elapsed();
+    let duration = start.elapsed().as_secs_f64();
     
-    println!("Loaded 1,000,000 entries in {:?}", duration);
-    println!("Rate: {:.0} entries/sec", 1_000_000 as f64 / duration.as_secs_f64());
+    println!("Loaded 1,000,000 entries in {:.3} seconds", duration);
+
+    let rate = 1_000_000 as f64 / duration;
+    let estimated_memory_usage = (rate * ((20 + 8) as f64) * duration) / (1024.0 * 1024.0);
+    println!("Rate: {:.0} entries/sec", rate);
     
     // Memory check: B-Tree with 1M entries should be reasonable
     // Rough estimate: 1M * (20 bytes key + 8 bytes offset + overhead)
-    println!("Estimated memory: ~50-100MB");
+    println!("Estimated memory usage: {:.4}MB", estimated_memory_usage);
     
     println!();
 }
