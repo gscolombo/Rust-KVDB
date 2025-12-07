@@ -1,7 +1,7 @@
 pub mod btree;
 pub use btree::BTree;
 mod records;
-
+mod pager;
 use records::{create_record, serialize_record};
 use std::env;
 use std::fs;
