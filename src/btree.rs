@@ -3,8 +3,8 @@ use std::io::Error;
 use crate::pager::Pager;
 
 // Constantes da B-Tree
-const T: usize = 3; 
-const MAX_KEYS: usize = 2 * T - 1; 
+const T: usize = 3;
+const MAX_KEYS: usize = 2 * T - 1;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BTree {
@@ -14,8 +14,8 @@ pub struct BTree {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Node {
     pub keys: Vec<String>,
-    pub values: Vec<String>,
-    pub children: Vec<u64>, 
+    pub values: Vec<Vec<u8>>,  // MODIFICADO: Vec<u8> em vez de String
+    pub children: Vec<u64>,
     pub is_leaf: bool,
     #[serde(skip)]
     pub id: Option<u64>,
@@ -26,13 +26,13 @@ impl BTree {
         BTree { root: None }
     }
 
-    pub fn insert(&mut self, key: String, value: String, pager: &mut Pager) -> Result<(), Error> {
+    pub fn insert(&mut self, key: String, value: Vec<u8>, pager: &mut Pager) -> Result<(), Error> {
         if let Some(root_id) = self.root {
             let mut root_node = Node::load(root_id, pager)?;
 
             if root_node.keys.len() == MAX_KEYS {
                 let mut new_root = Node::new(false);
-                new_root.children.push(root_id); 
+                new_root.children.push(root_id);
                 
                 new_root.split_child(0, &mut root_node, pager)?;
 
@@ -40,23 +40,20 @@ impl BTree {
                 
                 let mut child = Node::load(new_root.children[i], pager)?;
                 
-                // CORREÇÃO: Atualiza o ponteiro do filho modificado na nova raiz
                 new_root.children[i] = child.insert_non_full(key, value, pager)?;
 
                 self.root = Some(new_root.save(pager)?);
             } else {
-                // CORREÇÃO: A raiz mudou de lugar (append only), atualiza self.root
                 self.root = Some(root_node.insert_non_full(key, value, pager)?);
             }
         } else {
             let mut root_node = Node::new(true);
-            // CORREÇÃO: Captura o ID retornado
             self.root = Some(root_node.insert_non_full(key, value, pager)?);
         }
         Ok(())
     }
 
-    pub fn search(&self, key: &str, pager: &mut Pager) -> Option<String> {
+    pub fn search(&self, key: &str, pager: &mut Pager) -> Option<Vec<u8>> {  // MODIFICADO: retorna Vec<u8>
         if let Some(root_id) = self.root {
             if let Ok(root_node) = Node::load(root_id, pager) {
                 return root_node.search(key, pager);
@@ -66,7 +63,6 @@ impl BTree {
     }
 
     pub fn delete(&mut self, key: String, pager: &mut Pager) -> Result<(), Error> {
-        // println!("DEBUG: BTree::delete chamado para chave '{}'", key);
         if let Some(root_id) = self.root {
             let mut root_node = Node::load(root_id, pager)?;
 
@@ -82,6 +78,24 @@ impl BTree {
             } else {
                 self.root = Some(root_node.save(pager)?);
             }
+        }
+        Ok(())
+    }
+
+    // Métodos adicionais para persistência
+    pub fn load_from_pager(pager: &mut Pager) -> Result<Self, Error> {
+        if let Some(root_offset) = pager.get_root_offset() {
+            Ok(BTree {
+                root: Some(root_offset),
+            })
+        } else {
+            Ok(BTree::new())
+        }
+    }
+    
+    pub fn save_to_pager(&self, pager: &mut Pager) -> Result<(), Error> {
+        if let Some(root_id) = self.root {
+            pager.set_root_offset(root_id)?;
         }
         Ok(())
     }
@@ -107,15 +121,14 @@ impl Node {
 
     pub fn save(&self, pager: &mut Pager) -> Result<u64, Error> {
         let mut data = self.to_bytes()?;
-        data.resize(4096, 0); 
+        data.resize(4096, 0);
         
-        let offset = pager.get_end_offset()?; 
+        let offset = pager.allocate_page()?;
         pager.write_at(offset, &data)?;
         Ok(offset)
     }
 
-    // CORREÇÃO CRÍTICA: Agora retorna Result<u64, Error> (o novo ID do nó)
-    fn insert_non_full(&mut self, key: String, value: String, pager: &mut Pager) -> Result<u64, Error> {
+    fn insert_non_full(&mut self, key: String, value: Vec<u8>, pager: &mut Pager) -> Result<u64, Error> {
         let mut i = self.keys.len();
 
         if self.is_leaf {
@@ -124,7 +137,6 @@ impl Node {
             }
             self.keys.insert(i, key);
             self.values.insert(i, value);
-            // Retorna o novo ID gerado pelo save
             return self.save(pager);
         } else {
             while i > 0 && key < self.keys[i - 1] {
@@ -142,22 +154,17 @@ impl Node {
                 }
                 let mut correct_child = Node::load(self.children[i], pager)?;
                 
-                // CORREÇÃO: O pai atualiza o ponteiro para o filho que mudou de lugar!
                 self.children[i] = correct_child.insert_non_full(key, value, pager)?;
             } else {
-                // CORREÇÃO: O pai atualiza o ponteiro para o filho que mudou de lugar!
                 self.children[i] = child.insert_non_full(key, value, pager)?;
             }
         }
-        // Salva o pai (que agora tem ponteiros atualizados) e retorna seu novo ID
         self.save(pager)
     }
 
     fn split_child(&mut self, i: usize, child: &mut Node, pager: &mut Pager) -> Result<(), Error> {
         let mut right_node = Node::new(child.is_leaf);
 
-        let _split_idx = T; 
-        
         let median_key = child.keys[T - 1].clone();
         let median_val = child.values[T - 1].clone();
 
@@ -168,18 +175,16 @@ impl Node {
             right_node.children = child.children.drain(T..).collect();
         }
 
-        child.keys.pop(); 
+        child.keys.pop();
         child.values.pop();
 
-        let new_left_id = child.save(pager)?; 
-        let right_id = right_node.save(pager)?; 
+        let new_left_id = child.save(pager)?;
+        let right_id = right_node.save(pager)?;
 
         self.keys.insert(i, median_key);
         self.values.insert(i, median_val);
 
         self.children.insert(i + 1, right_id);
-        
-        // CORREÇÃO: Atualiza o ponteiro do filho da esquerda também
         self.children[i] = new_left_id;
         
         self.save(pager)?;
@@ -187,13 +192,13 @@ impl Node {
         Ok(())
     }
 
-    pub fn search(&self, key: &str, pager: &mut Pager) -> Option<String> {
+    pub fn search(&self, key: &str, pager: &mut Pager) -> Option<Vec<u8>> {  // MODIFICADO
         let mut i = 0;
         while i < self.keys.len() && key > &self.keys[i] {
             i += 1;
         }
         if i < self.keys.len() && key == &self.keys[i] {
-            return Some(self.values[i].clone());
+            return Some(self.values[i].clone());  // Retorna Vec<u8>
         }
         if self.is_leaf {
             return None;
@@ -205,15 +210,12 @@ impl Node {
     }
 
     fn remove_key(&mut self, key: String, pager: &mut Pager) -> Result<(), Error> {
-        // println!("DEBUG: remove_key visitando nó (Leaf={}). Chaves: {:?}", self.is_leaf, self.keys);
-
         let idx_search = self.keys.binary_search(&key);
 
         if let Ok(idx) = idx_search {
-            // println!("DEBUG: Chave '{}' encontrada neste nó no índice {}.", key, idx);
             if self.is_leaf {
                 self.keys.remove(idx);
-                self.values.remove(idx);
+                self.values.remove(idx);  // MODIFICADO
                 self.save(pager)?;
             } else {
                 self.delete_internal_node(idx, pager)?;
@@ -224,7 +226,6 @@ impl Node {
         let idx = idx_search.unwrap_err();
         
         if self.is_leaf {
-            // println!("DEBUG: Nó é folha e chave não encontrada. Fim da linha.");
             return Ok(());
         }
 
@@ -232,22 +233,18 @@ impl Node {
         let child_node = Node::load(child_id, pager)?;
 
         if child_node.keys.len() < T {
-            // println!("DEBUG: Filho {} tem poucas chaves. Executando fill.", idx);
             self.fill(idx, pager)?;
         }
 
         let child_idx = match self.keys.binary_search(&key) {
             Ok(_) => unreachable!("Erro de Lógica: Chave apareceu no pai durante a descida"),
-            Err(i) => i, 
+            Err(i) => i,
         };
-        // println!("DEBUG: Descendo para filho índice {} após verificação de fill.", child_idx);
 
         let child_id_final = self.children[child_idx];
         let mut child_final = Node::load(child_id_final, pager)?;
         
         child_final.remove_key(key, pager)?;
-
-        // CORREÇÃO DE DELETE: Atualiza ponteiro do filho modificado
         self.children[child_idx] = child_final.save(pager)?;
         self.save(pager)?;
 
@@ -264,12 +261,11 @@ impl Node {
             let (pred_key, pred_val) = left_child.get_predecessor(pager)?;
             
             self.keys[idx] = pred_key.clone();
-            self.values[idx] = pred_val;
+            self.values[idx] = pred_val;  // MODIFICADO
             
             left_child.remove_key(pred_key, pager)?;
-            
             self.children[idx] = left_child.save(pager)?;
-            self.save(pager)?; 
+            self.save(pager)?;
 
         } else {
             let right_child_id = self.children[idx + 1];
@@ -279,10 +275,9 @@ impl Node {
                 let (succ_key, succ_val) = right_child.get_successor(pager)?;
                 
                 self.keys[idx] = succ_key.clone();
-                self.values[idx] = succ_val;
+                self.values[idx] = succ_val;  // MODIFICADO
                 
                 right_child.remove_key(succ_key, pager)?;
-                
                 self.children[idx + 1] = right_child.save(pager)?;
                 self.save(pager)?;
 
@@ -293,7 +288,6 @@ impl Node {
                 let mut merged_child = Node::load(merged_child_id, pager)?;
                 
                 merged_child.remove_key(key_to_delete, pager)?;
-                
                 self.children[idx] = merged_child.save(pager)?;
                 self.save(pager)?;
             }
@@ -336,7 +330,7 @@ impl Node {
         child.keys.insert(0, self.keys[idx-1].clone());
         child.values.insert(0, self.values[idx-1].clone());
 
-        self.keys[idx-1]= sibling.keys.pop().unwrap();
+        self.keys[idx-1] = sibling.keys.pop().unwrap();
         self.values[idx-1] = sibling.values.pop().unwrap();
 
         if !child.is_leaf {
@@ -376,15 +370,14 @@ impl Node {
     }
 
     fn merge(&mut self, idx: usize, pager: &mut Pager) -> Result<(), Error> {
-        // println!("DEBUG: Realizando Merge no índice {}", idx);
         let left_child_id = self.children[idx];
         let right_child_id = self.children[idx + 1];
 
         let mut left_child = Node::load(left_child_id, pager)?;
-        let right_child = Node::load(right_child_id, pager)?; 
+        let right_child = Node::load(right_child_id, pager)?;
 
         let median_key = self.keys.remove(idx);
-        let median_val = self.values.remove(idx);
+        let median_val = self.values.remove(idx);  // MODIFICADO
         
         left_child.keys.push(median_key);
         left_child.values.push(median_val);
@@ -392,21 +385,20 @@ impl Node {
         left_child.keys.extend(right_child.keys);
         left_child.values.extend(right_child.values);
 
-        if !left_child.is_leaf{
+        if !left_child.is_leaf {
             left_child.children.extend(right_child.children);
         }
 
         self.children.remove(idx + 1);
-
         self.children[idx] = left_child.save(pager)?;
         self.save(pager)?;
         Ok(())
     }
 
-    fn get_predecessor(&self, pager: &mut Pager) -> Result<(String, String), Error> {
+    fn get_predecessor(&self, pager: &mut Pager) -> Result<(String, Vec<u8>), Error> {  // MODIFICADO
         if self.is_leaf {
-            Ok((self.keys.last().unwrap().clone(), self.values.last().unwrap().clone()))
-
+            Ok((self.keys.last().unwrap().clone(), 
+                 self.values.last().unwrap().clone()))
         } else {
             let last_child_id = *self.children.last().unwrap();
             let child = Node::load(last_child_id, pager)?;
@@ -414,9 +406,10 @@ impl Node {
         }
     }
 
-    fn get_successor(&self, pager: &mut Pager) -> Result<(String, String), Error> {
+    fn get_successor(&self, pager: &mut Pager) -> Result<(String, Vec<u8>), Error> {  // MODIFICADO
         if self.is_leaf {
-            Ok((self.keys.first().unwrap().clone(), self.values.first().unwrap().clone()))
+            Ok((self.keys.first().unwrap().clone(), 
+                 self.values.first().unwrap().clone()))
         } else {
             let first_child_id = self.children[0];
             let child = Node::load(first_child_id, pager)?;
@@ -433,7 +426,6 @@ impl Node {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,7 +438,7 @@ mod tests {
         if Path::new(&filename).exists() {
             fs::remove_file(&filename).unwrap();
         }
-        let pager = Pager::new(&filename); 
+        let pager = Pager::new(&filename);
         let btree = BTree::new();
         (btree, pager, filename)
     }
@@ -461,13 +453,13 @@ mod tests {
     fn test_delete_logic_simple() {
         let (mut tree, mut pager, filename) = setup_test("test_simple_del");
 
-        tree.insert("Key1".to_string(), "Val1".to_string(), &mut pager).unwrap();
-        tree.insert("Key2".to_string(), "Val2".to_string(), &mut pager).unwrap();
+        tree.insert("Key1".to_string(), b"Val1".to_vec(), &mut pager).unwrap();  // MODIFICADO
+        tree.insert("Key2".to_string(), b"Val2".to_vec(), &mut pager).unwrap();  // MODIFICADO
 
         tree.delete("Key1".to_string(), &mut pager).unwrap();
 
         assert_eq!(tree.search("Key1", &mut pager), None);
-        assert_eq!(tree.search("Key2", &mut pager), Some("Val2".to_string()));
+        assert_eq!(tree.search("Key2", &mut pager), Some(b"Val2".to_vec()));  // MODIFICADO
 
         teardown_test(&filename);
     }
@@ -479,7 +471,7 @@ mod tests {
         println!(">>> INICIANDO INSERÇÃO (0..20) <<<");
         for i in 0..20 {
             let k = format!("{:03}", i);
-            tree.insert(k.clone(), k, &mut pager).unwrap();
+            tree.insert(k.clone(), k.as_bytes().to_vec(), &mut pager).unwrap();  // MODIFICADO
         }
         
         println!(">>> INICIANDO DELEÇÃO DOS PARES (0, 2, 4... 18) <<<");
