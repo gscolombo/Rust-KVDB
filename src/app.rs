@@ -1,34 +1,45 @@
 use core::fmt;
 use std::fs::File;
 
-use crate::db::list_databases;
+// use ratatui::widgets::ScrollbarState;
 
+use ratatui::widgets::ScrollbarState;
+
+use crate::{btree::BTree, db::list_databases};
+
+// Representa a tela atual da aplicação
 pub enum CurrentScreen {
     Main(MainMenu),
-    DatabaseList,
-    DatabaseLoaded(DatabasePrompt)
+    DatabaseList, // Tela com listagem de bancos de dados disponíveis para carregamento
+    DatabaseLoaded(DatabasePrompt), // Tela para selecionar e executar um comando no banco de dados
+}
+
+impl Default for CurrentScreen {
+    fn default() -> Self {
+        CurrentScreen::Main(MainMenu::OptionsList)
+    }
 }
 
 pub enum MainMenu {
-    OptionsList,
-    CreateDb,
+    OptionsList, // Apresenta as opções do menu principal
+    CreateDb,    // Pop-up para entrada de usuário com o nome de um novo banco de dados
     SuccessMessage,
-    FailureMessage,
+    // FailureMessage,
 }
 
 pub enum DatabasePrompt {
-    SelectCommand,
-    UserInput,
-    ResultView,
+    SelectCommand, // Apresenta os comandos disponíveis para executar no banco de dados
+    UserInput,     // Pop-up para entrada de usuário com parâmetros do comando selecionado
+    ResultView,    // Tela de resultados da operação de busca (SEARCH)
     SuccessMessage,
-    FailureMessage
+    FailureMessage,
 }
 
 pub enum DatabaseCommands {
     SEARCH,
     INSERT,
     DELETE,
-    CLOSE
+    CLOSE,
 }
 
 impl fmt::Display for DatabaseCommands {
@@ -37,11 +48,13 @@ impl fmt::Display for DatabaseCommands {
             Self::SEARCH => write!(f, "SEARCH"),
             Self::INSERT => write!(f, "INSERT"),
             Self::DELETE => write!(f, "DELETE"),
-            Self::CLOSE => write!(f, "CLOSE")
+            Self::CLOSE => write!(f, "CLOSE"),
         }
     }
 }
 
+#[derive(Default)]
+// Representa o estado atual da aplicação
 pub struct App {
     pub input: String,
     pub loaded_db: Option<File>,
@@ -49,23 +62,23 @@ pub struct App {
     pub current_screen: CurrentScreen,
     pub option_highlighted: u8,
     pub db_command: Option<DatabaseCommands>,
+    pub index: BTree,
+    pub search_result: String,
+    // pub failure_message: String,
+    pub vertical_scroll_state: ScrollbarState,
+    pub vertical_scroll: u16,
+    pub line_count: usize
 }
 
 impl App {
     pub fn new() -> App {
-        let mut app = App {
-            input: String::new(),
-            loaded_db: None,
-            databases: Vec::new(),
-            current_screen: CurrentScreen::Main(MainMenu::OptionsList),
-            option_highlighted: 0,
-            db_command: None
-        };
+        let mut app = App::default();
 
         app.fetch_databases();
         app
     }
 
+    // Atualiza a lista de banco de dados da aplicação
     pub fn fetch_databases(&mut self) {
         self.databases = list_databases();
     }

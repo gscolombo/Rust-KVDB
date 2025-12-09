@@ -6,7 +6,7 @@ use super::button::Button;
 
 use crate::App;
 use crate::app::{CurrentScreen, DatabasePrompt, DatabaseCommands::*};
-use crate::cli::ui::shared::{render_success_message, render_user_input_popup};
+use crate::cli::ui::shared::{render_success_message, render_user_input_popup, render_result_view};
 
 pub fn database_prompt(frame: &mut Frame, app: &mut App, area: Rc<[Rect]>) {
     let options: Vec<String> = vec![SEARCH, INSERT, DELETE, CLOSE]
@@ -25,7 +25,7 @@ pub fn database_prompt(frame: &mut Frame, app: &mut App, area: Rc<[Rect]>) {
         .iter()
         .map(|name| Button::new(name.clone(), false));
 
-    // Check if popup is activated
+    // Pop-up screens
     match app.current_screen {
         CurrentScreen::DatabaseLoaded(DatabasePrompt::UserInput) => match app.db_command {
             Some(INSERT) => {
@@ -37,6 +37,9 @@ pub fn database_prompt(frame: &mut Frame, app: &mut App, area: Rc<[Rect]>) {
         },
         CurrentScreen::DatabaseLoaded(DatabasePrompt::SuccessMessage) => {
             render_success_message(frame, "Operação realizada com sucesso!\nAperte ESC ou ENTER para voltar.");
+        }
+        CurrentScreen::DatabaseLoaded(DatabasePrompt::ResultView) => {
+            render_result_view(frame, app);
         }
         _ => {}
     }

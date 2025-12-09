@@ -9,6 +9,8 @@ use std::io::*;
 mod app;
 mod cli;
 mod db;
+mod btree;
+mod records;
 
 use app::App;
 use cli::{run};
