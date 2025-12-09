@@ -9,6 +9,7 @@ use std::io::*;
 mod app;
 mod cli;
 mod db;
+mod pager;
 mod btree;
 mod records;
 
