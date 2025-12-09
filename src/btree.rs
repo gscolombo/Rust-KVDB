@@ -78,25 +78,44 @@ impl BTree {
     }
 
     pub fn delete(&mut self, key: String, pager: &mut Pager) -> Result<(), Error> {
-        // println!("DEBUG: BTree::delete chamado para chave '{}'", key);
-        if let Some(root_id) = self.root {
-            let mut root_node = Node::load(root_id, pager)?;
-
-            root_node.remove_key(key, pager)?;
-
-            if root_node.keys.is_empty() {
-                if !root_node.is_leaf {
-                    let new_root_id = root_node.children[0];
-                    self.root = Some(new_root_id);
-                } else {
-                    self.root = None;
-                }
+    println!("DEBUG: BTree::delete chamado para chave '{}'", key);
+    
+    if let Some(root_id) = self.root {
+        let mut root_node = Node::load(root_id, pager)?;
+        
+        // Remove a chave
+        root_node.remove_key(key, pager)?;
+        
+        // Se a raiz ficou vazia após remoção
+        if root_node.keys.is_empty() {
+            if !root_node.is_leaf {
+                // Raiz tem apenas um filho, promover o filho como nova raiz
+                let new_root_id = root_node.children[0];
+                self.root = Some(new_root_id);
+                
+                // ATUALIZAR OFFSET DA RAIZ NO ARQUIVO
+                pager.update_root_offset(&new_root_id.to_be_bytes())?;
             } else {
-                self.root = Some(root_node.save(pager)?);
+                // Árvore ficou vazia
+                self.root = None;
+                
+                // ATUALIZAR OFFSET DA RAIZ PARA 0 (árvore vazia)
+                pager.update_root_offset(&0u64.to_be_bytes())?;
             }
+        } else {
+            // Salva a raiz modificada e atualiza o ponteiro
+            let new_root_id = root_node.save(pager)?;
+            self.root = Some(new_root_id);
+            
+            // ATUALIZAR OFFSET DA RAIZ NO ARQUIVO
+            pager.update_root_offset(&new_root_id.to_be_bytes())?;
         }
-        Ok(())
+    } else {
+        println!("DEBUG: Tentativa de deletar em árvore vazia");
     }
+    
+    Ok(())
+}
 }
 
 impl Node {
@@ -168,31 +187,28 @@ impl Node {
     fn split_child(&mut self, i: usize, child: &mut Node, pager: &mut Pager) -> Result<(), Error> {
         let mut right_node = Node::new(child.is_leaf);
 
-        let _split_idx = T; 
+        let split_idx = T; 
         
-        let median_key = child.keys[T - 1].clone();
-        let median_val = child.values[T - 1].clone();
+        let median_key = child.keys[split_idx - 1].clone();
+        let median_val = child.values[split_idx - 1].clone();
 
-        right_node.keys = child.keys.drain(T..).collect();
-        right_node.values = child.values.drain(T..).collect();
+        right_node.keys = child.keys.drain(split_idx..).collect();
+        right_node.values = child.values.drain(split_idx..).collect();
+
+        child.keys.pop();  
+        child.values.pop();
 
         if !child.is_leaf {
-            right_node.children = child.children.drain(T..).collect();
+            right_node.children = child.children.drain(split_idx..).collect();
         }
-
-        child.keys.pop(); 
-        child.values.pop();
 
         let new_left_id = child.save(pager)?; 
         let right_id = right_node.save(pager)?; 
 
         self.keys.insert(i, median_key);
         self.values.insert(i, median_val);
-
         self.children.insert(i + 1, right_id);
-        
-        // CORREÇÃO: Atualiza o ponteiro do filho da esquerda também
-        self.children[i] = new_left_id;
+        self.children[i] = new_left_id;  // Atualizar ponteiro para filho esquerdo
         
         self.save(pager)?;
 
@@ -217,12 +233,12 @@ impl Node {
     }
 
     fn remove_key(&mut self, key: String, pager: &mut Pager) -> Result<(), Error> {
-        // println!("DEBUG: remove_key visitando nó (Leaf={}). Chaves: {:?}", self.is_leaf, self.keys);
+            println!("DEBUG: remove_key visitando nó (Leaf={}). Chaves: {:?}", self.is_leaf, self.keys);
 
         let idx_search = self.keys.binary_search(&key);
 
         if let Ok(idx) = idx_search {
-            // println!("DEBUG: Chave '{}' encontrada neste nó no índice {}.", key, idx);
+            println!("DEBUG: Chave '{}' encontrada neste nó no índice {}.", key, idx);
             if self.is_leaf {
                 self.keys.remove(idx);
                 self.values.remove(idx);
@@ -236,7 +252,7 @@ impl Node {
         let idx = idx_search.unwrap_err();
         
         if self.is_leaf {
-            // println!("DEBUG: Nó é folha e chave não encontrada. Fim da linha.");
+            println!("DEBUG: Nó é folha e chave não encontrada. Fim da linha.");
             return Ok(());
         }
 
@@ -244,7 +260,7 @@ impl Node {
         let child_node = Node::load(child_id, pager)?;
 
         if child_node.keys.len() < T {
-            // println!("DEBUG: Filho {} tem poucas chaves. Executando fill.", idx);
+            println!("DEBUG: Filho {} tem poucas chaves. Executando fill.", idx);
             self.fill(idx, pager)?;
         }
 
@@ -252,7 +268,7 @@ impl Node {
             Ok(_) => unreachable!("Erro de Lógica: Chave apareceu no pai durante a descida"),
             Err(i) => i, 
         };
-        // println!("DEBUG: Descendo para filho índice {} após verificação de fill.", child_idx);
+        println!("DEBUG: Descendo para filho índice {} após verificação de fill.", child_idx);
 
         let child_id_final = self.children[child_idx];
         let mut child_final = Node::load(child_id_final, pager)?;
@@ -260,8 +276,8 @@ impl Node {
         child_final.remove_key(key, pager)?;
 
         // CORREÇÃO DE DELETE: Atualiza ponteiro do filho modificado
-        self.children[child_idx] = child_final.save(pager)?;
-        self.save(pager)?;
+        let new_child_id = child_final.save(pager)?;
+        self.children[child_idx] = new_child_id;
 
         Ok(())
     }
@@ -523,6 +539,44 @@ mod tests {
                 }
             }
         }
+        
+        teardown_test(&filename);
+    }
+
+    #[test]
+    fn test_delete_integration() {
+        let (mut tree, mut pager, filename) = setup_test("test_delete_integration");
+        
+        // Inserir algumas chaves
+        for i in 0..10 {
+            let key = format!("key{}", i);
+            let value = format!("value{}", i);
+            tree.insert(key.clone(), value.clone(), &mut pager).unwrap();
+            assert_eq!(tree.search(&key, &mut pager), Some(value));
+        }
+        
+        // Deletar algumas chaves
+        tree.delete("key3".to_string(), &mut pager).unwrap();
+        assert_eq!(tree.search("key3", &mut pager), None);
+        
+        tree.delete("key7".to_string(), &mut pager).unwrap();
+        assert_eq!(tree.search("key7", &mut pager), None);
+        
+        // Verificar que as outras ainda existem
+        assert_eq!(tree.search("key0", &mut pager), Some("value0".to_string()));
+        assert_eq!(tree.search("key9", &mut pager), Some("value9".to_string()));
+        
+        // Deletar todas as chaves
+        for i in 0..10 {
+            if i != 3 && i != 7 {  // Já deletamos 3 e 7
+                let key = format!("key{}", i);
+                tree.delete(key.clone(), &mut pager).unwrap();
+                assert_eq!(tree.search(&key, &mut pager), None);
+            }
+        }
+        
+        // Verificar que a árvore está vazia
+        assert!(tree.root.is_none());
         
         teardown_test(&filename);
     }

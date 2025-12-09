@@ -36,7 +36,12 @@ pub fn database_prompt(frame: &mut Frame, app: &mut App, area: Rc<[Rect]>) {
             }
         },
         CurrentScreen::DatabaseLoaded(DatabasePrompt::SuccessMessage) => {
-            render_success_message(frame, "Operação realizada com sucesso!\nAperte ESC ou ENTER para voltar.");
+            let message = match app.db_command {
+                Some(DELETE) => "Chave deletada com sucesso!\nAperte ESC ou ENTER para voltar.",
+                Some(INSERT) => "Operação realizada com sucesso!\nAperte ESC ou ENTER para voltar.",
+                _ => "Operação realizada com sucesso!\nAperte ESC ou ENTER para voltar.",
+            };
+            render_success_message(frame, message);
         }
         CurrentScreen::DatabaseLoaded(DatabasePrompt::ResultView) => {
             render_result_view(frame, app);

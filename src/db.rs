@@ -41,7 +41,8 @@ pub fn create_database(name: &str) -> Result<File> {
         }
     };
 
-    db.write_all(&[0u8;8])?; // B-Tree root offset on creation is 8
+    // Escrever offset da raiz inicial (8 bytes de 0 = árvore vazia)
+    db.write_all(&0u64.to_be_bytes())?; // Árvore vazia inicialmente
     return Ok(db);
 }
 

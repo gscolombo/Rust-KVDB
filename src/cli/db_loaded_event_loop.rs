@@ -27,7 +27,7 @@ fn _insert(app: &mut App) {
         .expect("Não foi possível verificar a existência do arquivo.")
     {
         let key = path
-            .file_prefix()
+            .file_stem()  // Isso é estável e retorna o nome sem extensão
             .expect("Não foi possível extrair o prefixo do arquivo")
             .to_str()
             .expect("Não foi possível converter o nome do arquivo para o padrão Unicode.")
@@ -40,13 +40,29 @@ fn _insert(app: &mut App) {
                         Ok(_) => {
                             app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::SuccessMessage);
                         }
-                        Err(_) => {
+                        Err(e) => {
+                            panic!("{e}");
                             app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::FailureMessage);
                         }
                     }
                 }
              }
-            Err(_) => {
+            Err(e) => {
+                panic!("{e}");
+                app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::FailureMessage);
+            }
+        }
+    }
+}
+
+fn _delete(app: &mut App) {
+    if let Some(pager) = &mut app.loaded_db {
+        match app.index.delete(app.input.clone(), pager) {
+            Ok(_) => {
+                app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::SuccessMessage);
+            }
+            Err(e) => {
+                println!("Erro ao deletar: {:?}", e);
                 app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::FailureMessage);
             }
         }
@@ -80,6 +96,7 @@ pub fn database_loaded_event_loop(key: KeyEvent, app: &mut App) {
                 |app| match app.db_command {
                     Some(SEARCH) => _search(app),
                     Some(INSERT) => _insert(app),
+                    Some(DELETE) => _delete(app),
                     _ => {}
                 },
             );
