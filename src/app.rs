@@ -1,7 +1,5 @@
 use core::fmt;
-use std::fs::File;
-
-// use ratatui::widgets::ScrollbarState;
+use crate::pager::Pager;
 
 use ratatui::widgets::ScrollbarState;
 
@@ -57,7 +55,7 @@ impl fmt::Display for DatabaseCommands {
 // Representa o estado atual da aplicação
 pub struct App {
     pub input: String,
-    pub loaded_db: Option<File>,
+    pub loaded_db: Option<Pager>,
     pub databases: Vec<String>,
     pub current_screen: CurrentScreen,
     pub option_highlighted: u8,

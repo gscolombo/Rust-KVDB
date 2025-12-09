@@ -1,5 +1,7 @@
-use std::fs::{File, OpenOptions};
+use std::fs::{File};
 use std::io::{Read, Write, Seek, SeekFrom, Result};
+
+use crate::db::open_database;
 
 pub struct Pager {
     file: File,
@@ -7,13 +9,8 @@ pub struct Pager {
 
 impl Pager {
     // Abre ou cria o arquivo do banco de dados
-    pub fn new(filename: &str) -> Self {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(filename)
-            .expect("Não foi possível abrir o arquivo do banco de dados");
+    pub fn new(db_name: &str) -> Self {
+        let file = open_database(db_name);
 
         Pager { file }
     }
@@ -36,5 +33,9 @@ impl Pager {
     // Descobre onde escrever o próximo nó (no final do arquivo)
     pub fn get_end_offset(&mut self) -> Result<u64> {
         self.file.seek(SeekFrom::End(0))
+    }
+
+    pub fn update_root_offset(&mut self, root_offset: &[u8;8]) -> Result<()> {
+        self.write_at(0, root_offset)
     }
 }

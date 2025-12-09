@@ -21,12 +21,20 @@ pub struct Node {
     pub id: Option<u64>,
 }
 
+impl Default for BTree {
+    fn default() -> Self {
+        BTree::new(None)
+    }
+}
+
 impl BTree {
-    pub fn new() -> Self {
-        BTree { root: None }
+    pub fn new(root_offset: Option<u64>) -> Self {
+        BTree { root: root_offset }
     }
 
     pub fn insert(&mut self, key: String, value: String, pager: &mut Pager) -> Result<(), Error> {
+        let root_offset: u64;
+
         if let Some(root_id) = self.root {
             let mut root_node = Node::load(root_id, pager)?;
 
@@ -43,17 +51,21 @@ impl BTree {
                 // CORREÇÃO: Atualiza o ponteiro do filho modificado na nova raiz
                 new_root.children[i] = child.insert_non_full(key, value, pager)?;
 
-                self.root = Some(new_root.save(pager)?);
+                root_offset = new_root.save(pager)?;
+                self.root = Some(root_offset);
             } else {
                 // CORREÇÃO: A raiz mudou de lugar (append only), atualiza self.root
-                self.root = Some(root_node.insert_non_full(key, value, pager)?);
+                root_offset = root_node.insert_non_full(key, value, pager)?;
+                self.root = Some(root_offset);
             }
         } else {
             let mut root_node = Node::new(true);
-            // CORREÇÃO: Captura o ID retornado
-            self.root = Some(root_node.insert_non_full(key, value, pager)?);
+            
+            root_offset = root_node.insert_non_full(key, value, pager)?;
+            self.root = Some(root_offset);
         }
-        Ok(())
+
+        pager.update_root_offset(&root_offset.to_be_bytes())
     }
 
     pub fn search(&self, key: &str, pager: &mut Pager) -> Option<String> {
@@ -437,17 +449,20 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::create_database;
     use crate::pager::Pager;
     use std::fs;
     use std::path::Path;
 
     fn setup_test(db_name: &str) -> (BTree, Pager, String) {
-        let filename = format!("{}.db", db_name);
+        let filename = format!("./databases/{db_name}.kvdb");
         if Path::new(&filename).exists() {
             fs::remove_file(&filename).unwrap();
         }
-        let pager = Pager::new(&filename); 
-        let btree = BTree::new();
+        create_database(db_name).expect("Não foi possível criar o banco de dados de teste.");
+
+        let pager = Pager::new(db_name); 
+        let btree = BTree::default();
         (btree, pager, filename)
     }
 
