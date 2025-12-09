@@ -1,6 +1,3 @@
-use std::io::{Seek, Write};
-use std::os::unix::fs::FileExt;
-
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 
 use crate::app::{App, CurrentScreen, DatabaseCommands::*, DatabasePrompt, MainMenu};
@@ -8,24 +5,17 @@ use crate::app::{App, CurrentScreen, DatabaseCommands::*, DatabasePrompt, MainMe
 use crate::btree::BTree;
 use crate::cli::menus::database_commands;
 use crate::cli::shared::user_input;
-use crate::records::{create_record, serialize_record};
 
 fn _search(app: &mut App) {
-    if let Some(offset) = app.index.search(&app.input)
-        && let Some(db) = &mut app.loaded_db
-    {
-        let mut value_length = [0u8; 8];
-
-        if let Ok(_) = db.read_exact_at(&mut value_length, offset) {
-            let size = u64::from_be_bytes(value_length);
-
-            let mut data = vec![0u8; size as usize];
-            db.read_exact_at(&mut data, offset + 8)
-                .expect("Erro durante leitura de arquivo do banco de dados");
-
-            app.search_result =
-                String::from_utf8(data).expect("Erro durante conversão de bytes em string UTF-8");
-            app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::ResultView);
+    if let Some(pager) = &mut app.loaded_db {
+        match app.index.search(&app.input, pager) {
+            Some(s) => {
+                app.search_result = s;
+                app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::ResultView);
+            }
+            None => {
+                app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::FailureMessage);
+            }
         }
     }
 }
@@ -43,29 +33,21 @@ fn _insert(app: &mut App) {
             .expect("Não foi possível converter o nome do arquivo para o padrão Unicode.")
             .to_string();
 
-        let record = create_record(&key, path);
-        if let Some(db) = &mut app.loaded_db {
-            match db.write_all(&serialize_record(&record)) {
-                Ok(_) => {
-                    app.index
-                        .insert(
-                            key,
-                            db.stream_position()
-                                .expect("Erro ao obter a posição atual no stream")
-                                - record.header.size
-                                - 8,
-                        )
-                        .expect("Não foi possível atualizar o índice");
-                    db.write_at(&app.index.size.to_be_bytes(), 0)
-                        .expect("Não foi possível atualizar o número de chaves do índice");
-
-                    app.current_screen =
-                        CurrentScreen::DatabaseLoaded(DatabasePrompt::SuccessMessage);
+        match std::fs::read_to_string(path) {
+            Ok(data) => {
+                if let Some(pager) = &mut app.loaded_db {
+                    match app.index.insert(key, data, pager) {
+                        Ok(_) => {
+                            app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::SuccessMessage);
+                        }
+                        Err(_) => {
+                            app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::FailureMessage);
+                        }
+                    }
                 }
-                Err(_) => {
-                    app.current_screen =
-                        CurrentScreen::DatabaseLoaded(DatabasePrompt::FailureMessage);
-                }
+             }
+            Err(_) => {
+                app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::FailureMessage);
             }
         }
     }
@@ -79,7 +61,7 @@ pub fn database_loaded_event_loop(key: KeyEvent, app: &mut App) {
                 None => {}
                 Some(CLOSE) => {
                     app.loaded_db = None;
-                    app.index = BTree::new();
+                    app.index = BTree::default();
                     app.current_screen = CurrentScreen::Main(MainMenu::OptionsList);
                     app.option_highlighted = 0;
                 }
