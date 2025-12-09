@@ -1,24 +1,42 @@
-pub mod btree;
-pub use btree::BTree;
+use ratatui::Terminal;
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
+use ratatui::prelude::{CrosstermBackend};
+use std::io::*;
+
+mod app;
+mod cli;
+mod db;
+mod btree;
 mod records;
-mod pager;
-use records::{create_record, serialize_record};
-use std::env;
-use std::fs;
-use std::io::Write;
 
-fn main() -> std::io::Result<()> {
-    let args: Vec<String> = env::args().collect();
+use app::App;
+use cli::{run};
 
-    let key = &args[1];
-    let path = &args[2];
+fn main() -> Result<()> {
+    let mut stdout = stdout();
+    enable_raw_mode()?;
+    execute!(stdout, EnterAlternateScreen)?;
 
-    println!("Creating record for file in {path}...");
-    let rec = create_record(key, path);
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-    let fname = key.clone() + ".kvdb";
-    let mut db = fs::File::create(fname).expect("Error creating database file.");
-    
-    db.write_all(&serialize_record(rec))?;
+    let mut app = App::new();
+    let res = run(&mut terminal, &mut app);
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    if let Ok(do_print) = res {
+        if do_print {
+            println!("See ya!");
+        }
+    } else if let Err(err) = res {
+        println!("{err:?}");
+    }
+
     Ok(())
 }

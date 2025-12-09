@@ -1,21 +1,30 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::io::Error;
-use crate::pager::Pager;
 
 // Constantes da B-Tree
-const T: usize = 3; 
-const MAX_KEYS: usize = 2 * T - 1; 
+const T: usize = 3;
+const MAX_KEYS: usize = 2 * T - 1;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BTree {
-    pub root: Option<u64>,
+    pub size: u64, // Número de chaves
+    pub root: Option<Node>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+impl Default for BTree {
+    fn default() -> Self {
+        BTree {
+            size: 0,
+            root: None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Node {
     pub keys: Vec<String>,
-    pub values: Vec<String>,
-    pub children: Vec<u64>, 
+    pub values: Vec<u64>,
+    pub children: Vec<Node>,
     pub is_leaf: bool,
     #[serde(skip)]
     pub id: Option<u64>,
@@ -23,18 +32,16 @@ pub struct Node {
 
 impl BTree {
     pub fn new() -> Self {
-        BTree { root: None }
+        BTree::default()
     }
 
-    pub fn insert(&mut self, key: String, value: String, pager: &mut Pager) -> Result<(), Error> {
-        if let Some(root_id) = self.root {
-            let mut root_node = Node::load(root_id, pager)?;
-
-            if root_node.keys.len() == MAX_KEYS {
+    pub fn insert(&mut self, key: String, value: u64) -> Result<(), Error> {
+        if let Some(root) = &mut self.root {
+            if root.keys.len() == MAX_KEYS {
                 let mut new_root = Node::new(false);
-                new_root.children.push(root_id); 
-                
-                new_root.split_child(0, &mut root_node, pager)?;
+                new_root.children.push(root.clone());
+
+                new_root.split_child(0)?;
 
                 let i = if key > new_root.keys[0] { 1 } else { 0 };
                 
@@ -43,7 +50,7 @@ impl BTree {
                 // CORREÇÃO: Atualiza o ponteiro do filho modificado na nova raiz
                 new_root.children[i] = child.insert_non_full(key, value, pager)?;
 
-                self.root = Some(new_root.save(pager)?);
+                self.root = Some(new_root);
             } else {
                 // CORREÇÃO: A raiz mudou de lugar (append only), atualiza self.root
                 self.root = Some(root_node.insert_non_full(key, value, pager)?);
@@ -53,14 +60,14 @@ impl BTree {
             // CORREÇÃO: Captura o ID retornado
             self.root = Some(root_node.insert_non_full(key, value, pager)?);
         }
+
+        self.size += 1;
         Ok(())
     }
 
-    pub fn search(&self, key: &str, pager: &mut Pager) -> Option<String> {
-        if let Some(root_id) = self.root {
-            if let Ok(root_node) = Node::load(root_id, pager) {
-                return root_node.search(key, pager);
-            }
+    pub fn search(&self, key: &str) -> Option<u64> {
+        if let Some(root) = &self.root {
+            return root.search(key);
         }
         None
     }
@@ -131,11 +138,10 @@ impl Node {
                 i -= 1;
             }
 
-            let child_id = self.children[i];
-            let mut child = Node::load(child_id, pager)?;
+            let child = &mut self.children[i];
 
             if child.keys.len() == MAX_KEYS {
-                self.split_child(i, &mut child, pager)?;
+                self.split_child(i)?;
 
                 if key > self.keys[i] {
                     i += 1;
@@ -153,11 +159,12 @@ impl Node {
         self.save(pager)
     }
 
-    fn split_child(&mut self, i: usize, child: &mut Node, pager: &mut Pager) -> Result<(), Error> {
+    fn split_child(&mut self, i: usize) -> Result<(), Error> {
+        let child = &mut self.children[i];
         let mut right_node = Node::new(child.is_leaf);
 
-        let _split_idx = T; 
-        
+        let _split_idx = T;
+
         let median_key = child.keys[T - 1].clone();
         let median_val = child.values[T - 1].clone();
 
@@ -168,7 +175,7 @@ impl Node {
             right_node.children = child.children.drain(T..).collect();
         }
 
-        child.keys.pop(); 
+        child.keys.pop();
         child.values.pop();
 
         let new_left_id = child.save(pager)?; 
@@ -187,19 +194,19 @@ impl Node {
         Ok(())
     }
 
-    pub fn search(&self, key: &str, pager: &mut Pager) -> Option<String> {
+    pub fn search(&self, key: &str) -> Option<u64> {
         let mut i = 0;
         while i < self.keys.len() && key > &self.keys[i] {
             i += 1;
         }
         if i < self.keys.len() && key == &self.keys[i] {
-            return Some(self.values[i].clone());
+            return Some(self.values[i]);
         }
         if self.is_leaf {
             return None;
         }
-        if let Ok(child_node) = Node::load(self.children[i], pager) {
-            return child_node.search(key, pager);
+        if self.children.len() > i {
+            return self.children[i].search(key);
         }
         None
     }
