@@ -2,36 +2,54 @@ use serde::{Serialize, Deserialize};
 use std::io::Error;
 use crate::pager::Pager;
 
-// Constantes da B-Tree
+// Constantes da B-Tree (árvore-B de ordem T)
 const T: usize = 3; 
-const MAX_KEYS: usize = 2 * T - 1; 
+const MAX_KEYS: usize = 2 * T - 1; // Número máximo de chaves por nó
 
 #[derive(Serialize, Deserialize, Debug)]
+/// Estrutura que representa uma árvore-B
+/// Utilizada como índice para busca eficiente de pares chave-valor.
+/// A serialização/deserialização com Serde permite persistência em disco.
 pub struct BTree {
-    pub root: Option<u64>,
+    pub root: Option<u64>,   // Offset (em bytes) do nó raiz no arquivo
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+/// Estrutura que representa um nó da árvore-B
 pub struct Node {
-    pub keys: Vec<String>,
-    pub values: Vec<String>,
-    pub children: Vec<u64>, 
-    pub is_leaf: bool,
-    #[serde(skip)]
-    pub id: Option<u64>,
+    pub keys: Vec<String>,   // Chaves armazenadas no nó (ordenadas)
+    pub values: Vec<String>,  // Valores correspondentes às chaves
+    pub children: Vec<u64>,   // Offsets dos filhos no arquivo (se não for folha)
+    pub is_leaf: bool,  // Indica se o nó é folha
+    #[serde(skip)]   // Não serializa o ID (é redundante com offset)
+    pub id: Option<u64>,  // Offset atual do nó no arquivo
 }
 
 impl Default for BTree {
+    /// Cria uma B-Tree vazia (sem raiz)
     fn default() -> Self {
         BTree::new(None)
     }
 }
 
 impl BTree {
+    /// Cria uma nova B-Tree com a raiz especificada
     pub fn new(root_offset: Option<u64>) -> Self {
         BTree { root: root_offset }
     }
 
+    /// Insere um par chave-valor na árvore-B
+    /// # Arguments
+    /// * `key` - Chave a ser inserida
+    /// * `value` - Valor associado à chave
+    /// * `pager` - Gerenciador de acesso ao arquivo
+    /// # Returns
+    /// * `Ok(())` se a inserção foi bem-sucedida
+    /// * `Err(Error)` se ocorrer algum erro de I/O
+    /// # Algorithm
+    /// 1. Se a árvore está vazia, cria nova raiz folha
+    /// 2. Se a raiz está cheia, realiza split e promove mediana
+    /// 3. Caso contrário, insere recursivamente
     pub fn insert(&mut self, key: String, value: String, pager: &mut Pager) -> Result<(), Error> {
         let root_offset: u64;
 
@@ -39,6 +57,7 @@ impl BTree {
             let mut root_node = Node::load(root_id, pager)?;
 
             if root_node.keys.len() == MAX_KEYS {
+                // Raiz está cheia: precisa fazer split
                 let mut new_root = Node::new(false);
                 new_root.children.push(root_id); 
                 
@@ -48,26 +67,35 @@ impl BTree {
                 
                 let mut child = Node::load(new_root.children[i], pager)?;
                 
-                // CORREÇÃO: Atualiza o ponteiro do filho modificado na nova raiz
+                // Atualiza o ponteiro do filho modificado na nova raiz
                 new_root.children[i] = child.insert_non_full(key, value, pager)?;
 
                 root_offset = new_root.save(pager)?;
                 self.root = Some(root_offset);
             } else {
-                // CORREÇÃO: A raiz mudou de lugar (append only), atualiza self.root
+                // Raiz tem espaço: insere diretamente
+                // A raiz mudou de lugar (append only), atualiza self.root
                 root_offset = root_node.insert_non_full(key, value, pager)?;
                 self.root = Some(root_offset);
             }
         } else {
+             // Árvore vazia: cria nova raiz folha
             let mut root_node = Node::new(true);
             
             root_offset = root_node.insert_non_full(key, value, pager)?;
             self.root = Some(root_offset);
         }
-
+        // Atualiza offset da raiz no cabeçalho do arquivo
         pager.update_root_offset(&root_offset.to_be_bytes())
     }
 
+    /// Busca um valor pela chave na árvore-B
+    /// # Arguments
+    /// * `key` - Chave a ser buscada
+    /// * `pager` - Gerenciador de acesso ao arquivo
+    /// # Returns
+    /// * `Some(String)` se a chave foi encontrada (valor correspondente)
+    /// * `None` se a chave não existe
     pub fn search(&self, key: &str, pager: &mut Pager) -> Option<String> {
         if let Some(root_id) = self.root {
             if let Ok(root_node) = Node::load(root_id, pager) {
@@ -77,48 +105,60 @@ impl BTree {
         None
     }
 
+    /// Remove uma chave e seu valor da árvore-B
+    /// # Arguments
+    /// * `key` - Chave a ser removida
+    /// * `pager` - Gerenciador de acesso ao arquivo
+    /// # Returns
+    /// * `Ok(())` se a remoção foi bem-sucedida
+    /// * `Err(Error)` se ocorrer algum erro
+    /// # Algorithm
+    /// 1. Remove a chave recursivamente
+    /// 2. Se raiz ficar vazia, promove filho ou marca árvore como vazia
+    /// 3. Atualiza offset da raiz no arquivo
     pub fn delete(&mut self, key: String, pager: &mut Pager) -> Result<(), Error> {
-    println!("DEBUG: BTree::delete chamado para chave '{}'", key);
-    
-    if let Some(root_id) = self.root {
-        let mut root_node = Node::load(root_id, pager)?;
+        println!("DEBUG: BTree::delete chamado para chave '{}'", key);
         
-        // Remove a chave
-        root_node.remove_key(key, pager)?;
-        
-        // Se a raiz ficou vazia após remoção
-        if root_node.keys.is_empty() {
-            if !root_node.is_leaf {
-                // Raiz tem apenas um filho, promover o filho como nova raiz
-                let new_root_id = root_node.children[0];
+        if let Some(root_id) = self.root {
+            let mut root_node = Node::load(root_id, pager)?;
+            
+            // Remove a chave
+            root_node.remove_key(key, pager)?;
+            
+            // Se a raiz ficou vazia após remoção
+            if root_node.keys.is_empty() {
+                if !root_node.is_leaf {
+                    // Raiz tem apenas um filho, promover o filho como nova raiz
+                    let new_root_id = root_node.children[0];
+                    self.root = Some(new_root_id);
+                    
+                    // Atualizar offset da raiz no arquivo
+                    pager.update_root_offset(&new_root_id.to_be_bytes())?;
+                } else {
+                    // Árvore ficou vazia
+                    self.root = None;
+                    
+                    // Atualizar offset da raiz para 0 (árvore vazia)
+                    pager.update_root_offset(&0u64.to_be_bytes())?;
+                }
+            } else {
+                // Salva a raiz modificada e atualiza o ponteiro
+                let new_root_id = root_node.save(pager)?;
                 self.root = Some(new_root_id);
                 
-                // ATUALIZAR OFFSET DA RAIZ NO ARQUIVO
+                // Atualizar offset da raiz no arquivo
                 pager.update_root_offset(&new_root_id.to_be_bytes())?;
-            } else {
-                // Árvore ficou vazia
-                self.root = None;
-                
-                // ATUALIZAR OFFSET DA RAIZ PARA 0 (árvore vazia)
-                pager.update_root_offset(&0u64.to_be_bytes())?;
             }
         } else {
-            // Salva a raiz modificada e atualiza o ponteiro
-            let new_root_id = root_node.save(pager)?;
-            self.root = Some(new_root_id);
-            
-            // ATUALIZAR OFFSET DA RAIZ NO ARQUIVO
-            pager.update_root_offset(&new_root_id.to_be_bytes())?;
+            println!("DEBUG: Tentativa de deletar em árvore vazia");
         }
-    } else {
-        println!("DEBUG: Tentativa de deletar em árvore vazia");
+        
+        Ok(())
     }
-    
-    Ok(())
-}
 }
 
 impl Node {
+    /// Cria um novo nó (folha ou interno)
     pub fn new(is_leaf: bool) -> Self {
         Node {
             keys: Vec::new(),
@@ -129,27 +169,48 @@ impl Node {
         }
     }
 
+    /// Carrega um nó do arquivo a partir de um offset0
+    /// # Arguments
+    /// * `offset` - Posição no arquivo onde o nó está armazenado
+    /// * `pager` - Gerenciador de acesso ao arquivo 
+    /// # Returns
+    /// * `Ok(Node)` se carregado com sucesso
+    /// * `Err(Error)` se ocorrer erro de I/O ou deserialização
     pub fn load(offset: u64, pager: &mut Pager) -> Result<Self, Error> {
-        let data = pager.read_at(offset, 4096)?;
+        let data = pager.read_at(offset, 4096)?; // Lê página de 4KB
         let mut node = Node::from_bytes(&data)?;
-        node.id = Some(offset);
+        node.id = Some(offset);  // Armazena offset atual
         Ok(node)
     }
 
+
+    //montrar no video
+    /// Salva o nó no arquivo (append-only)
+    /// # Arguments
+    /// * `pager` - Gerenciador de acesso ao arquivo
+    /// # Returns
+    /// * `Ok(u64)` offset onde o nó foi salvo
+    /// * `Err(Error)` se ocorrer erro de I/O ou serialização
+    /// # OBS:
+    /// Estratégia append-only: sempre escreve no final do arquivo,
+    /// nunca sobrescreve nós existentes (simplifica concorrência)
     pub fn save(&self, pager: &mut Pager) -> Result<u64, Error> {
         let mut data = self.to_bytes()?;
-        data.resize(4096, 0); 
+        data.resize(4096, 0); // Preenche para tamanho de página (4KB)
         
-        let offset = pager.get_end_offset()?; 
-        pager.write_at(offset, &data)?;
+        let offset = pager.get_end_offset()?; // Obtém fim do arquivo
+        pager.write_at(offset, &data)?;  // Escreve no final
         Ok(offset)
     }
 
-    // CORREÇÃO CRÍTICA: Agora retorna Result<u64, Error> (o novo ID do nó)
+    // Insere chave-valor em nó não cheio (método auxiliar recursivo)
+    /// # Returns
+    /// * `Ok(u64)` novo offset do nó (pode mudar devido a splits)
     fn insert_non_full(&mut self, key: String, value: String, pager: &mut Pager) -> Result<u64, Error> {
         let mut i = self.keys.len();
 
         if self.is_leaf {
+            // Encontra posição de inserção (mantém ordenação)
             while i > 0 && key < self.keys[i - 1] {
                 i -= 1;
             }
@@ -158,6 +219,7 @@ impl Node {
             // Retorna o novo ID gerado pelo save
             return self.save(pager);
         } else {
+            // Nó interno: encontra filho apropriado
             while i > 0 && key < self.keys[i - 1] {
                 i -= 1;
             }
@@ -166,6 +228,7 @@ impl Node {
             let mut child = Node::load(child_id, pager)?;
 
             if child.keys.len() == MAX_KEYS {
+                // Filho está cheio: precisa split
                 self.split_child(i, &mut child, pager)?;
 
                 if key > self.keys[i] {
@@ -173,10 +236,10 @@ impl Node {
                 }
                 let mut correct_child = Node::load(self.children[i], pager)?;
                 
-                // CORREÇÃO: O pai atualiza o ponteiro para o filho que mudou de lugar!
+                // Atualiza ponteiro para filho que mudou de lugar
                 self.children[i] = correct_child.insert_non_full(key, value, pager)?;
             } else {
-                // CORREÇÃO: O pai atualiza o ponteiro para o filho que mudou de lugar!
+                // Filho tem espaço: insere recursivamente
                 self.children[i] = child.insert_non_full(key, value, pager)?;
             }
         }
@@ -184,37 +247,53 @@ impl Node {
         self.save(pager)
     }
 
+    /// Divide um filho cheio em dois nós
+    /// 
+    /// # Arguments
+    /// * `i` - Índice do filho a ser dividido
+    /// * `child` - Referência mutável ao filho
+    /// * `pager` - Gerenciador de acesso ao arquivo
+    /// 
+    /// # Algorithm
+    /// 1. Cria novo nó direito
+    /// 2. Move metade das chaves/valores/filhos para direita
+    /// 3. Promove mediana para pai
+    /// 4. Atualiza ponteiros no pai
     fn split_child(&mut self, i: usize, child: &mut Node, pager: &mut Pager) -> Result<(), Error> {
         let mut right_node = Node::new(child.is_leaf);
 
-        let split_idx = T; 
+        let split_idx = T;   // Ponto de divisão (índice da mediana)
         
         let median_key = child.keys[split_idx - 1].clone();
         let median_val = child.values[split_idx - 1].clone();
 
+        // Move elementos para o nó direito
         right_node.keys = child.keys.drain(split_idx..).collect();
         right_node.values = child.values.drain(split_idx..).collect();
 
-        child.keys.pop();  
+        child.keys.pop();  // Remove mediana do filho esquerdo
         child.values.pop();
 
         if !child.is_leaf {
             right_node.children = child.children.drain(split_idx..).collect();
         }
 
+        // Salva ambos os nós e obtém seus offsets
         let new_left_id = child.save(pager)?; 
         let right_id = right_node.save(pager)?; 
 
+        // Insere mediana no pai e atualiza ponteiros
         self.keys.insert(i, median_key);
         self.values.insert(i, median_val);
         self.children.insert(i + 1, right_id);
         self.children[i] = new_left_id;  // Atualizar ponteiro para filho esquerdo
         
-        self.save(pager)?;
+        self.save(pager)?;  // Salva pai modificado
 
         Ok(())
     }
 
+    /// Busca recursiva por uma chave no nó e seus descendentes
     pub fn search(&self, key: &str, pager: &mut Pager) -> Option<String> {
         let mut i = 0;
         while i < self.keys.len() && key > &self.keys[i] {
@@ -232,27 +311,27 @@ impl Node {
         None
     }
 
+    /// Remove uma chave do nó (método auxiliar recursivo)
     fn remove_key(&mut self, key: String, pager: &mut Pager) -> Result<(), Error> {
-            println!("DEBUG: remove_key visitando nó (Leaf={}). Chaves: {:?}", self.is_leaf, self.keys);
-
         let idx_search = self.keys.binary_search(&key);
 
         if let Ok(idx) = idx_search {
-            println!("DEBUG: Chave '{}' encontrada neste nó no índice {}.", key, idx);
+            // Remoção direta em folha
             if self.is_leaf {
                 self.keys.remove(idx);
                 self.values.remove(idx);
                 self.save(pager)?;
             } else {
+                // Remoção em nó interno
                 self.delete_internal_node(idx, pager)?;
             }
             return Ok(());
         }
+    
 
         let idx = idx_search.unwrap_err();
         
         if self.is_leaf {
-            println!("DEBUG: Nó é folha e chave não encontrada. Fim da linha.");
             return Ok(());
         }
 

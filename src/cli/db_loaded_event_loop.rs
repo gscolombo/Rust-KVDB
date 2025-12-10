@@ -40,20 +40,19 @@ fn _insert(app: &mut App) {
                         Ok(_) => {
                             app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::SuccessMessage);
                         }
-                        Err(e) => {
-                            panic!("{e}");
+                        Err(_) => {
                             app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::FailureMessage);
                         }
                     }
                 }
              }
-            Err(e) => {
-                panic!("{e}");
+            Err(_) => {
                 app.current_screen = CurrentScreen::DatabaseLoaded(DatabasePrompt::FailureMessage);
             }
         }
     }
 }
+
 
 fn _delete(app: &mut App) {
     if let Some(pager) = &mut app.loaded_db {
